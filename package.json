@@ -1,7 +1,7 @@
 {
   "name": "gh-actions-slack-notify",
   "description": "GitHub Actions Slack Notify",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Duc Duong <duc.duong@c0x12c.com>",
   "private": true,
   "homepage": "https://github.com/c0x12c/gh-actions-slack-notify",
