@@ -41,7 +41,7 @@ jobs:
         uses: super-linter/super-linter/slim@v6
         env:
           DEFAULT_BRANCH: master
-          FILTER_REGEX_EXCLUDE: 'dist/**/*|tools/*|.github/workflows/*|.yarn/**/*|ci.yml'
+          FILTER_REGEX_EXCLUDE: 'dist/**/*|tools/*|.github/**/*|.yarn/**/*|ci.yml'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TYPESCRIPT_DEFAULT_STYLE: prettier
           VALIDATE_ALL_CODEBASE: true
