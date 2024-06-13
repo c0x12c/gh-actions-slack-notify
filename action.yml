@@ -1,0 +1,28 @@
+name: 'The name of your action here'
+description: 'Provide a description here'
+author: 'Your name or organization here'
+
+# Add your action's branding here. This will appear on the GitHub Marketplace.
+branding:
+  icon: 'heart'
+  color: 'red'
+
+# Define your inputs here.
+inputs:
+  num-commits:
+    description: 'The number of recent commis included in the message'
+    required: false
+    default: '3'
+  project_url:
+    description: 'The project URL for preview'
+    required: false
+  title:
+    description: 'The message title'
+    required: true
+  webhook_url:
+    description: 'The Slack webhook URL'
+    required: true
+
+runs:
+  using: node20
+  main: dist/index.js
