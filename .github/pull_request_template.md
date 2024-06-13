@@ -1,7 +1,9 @@
 ## Summary
+
 <!--- Summary of changes --->
 
 ## Types of Changes
+
 <!--- What types of changes does your code introduce? Put an `x` in all the boxes that apply: --->
 
 - [ ] New feature (non-breaking change which adds functionality)
@@ -13,7 +15,9 @@
       testing)
 
 ## Test Plan:
+
 <!--- How do you test your changes? (unit test, integration test, dev test) or skip_test if it's not applicable  --->
 
 ## Jira Issues:
+
 <!--- Link to your YouTrack ticket --->

@@ -38064,13 +38064,14 @@ async function run() {
         const combinedMessages = commitMessages.all
             .map(commit => `${commit.hash.substring(0, 8)} (${commit.author_name}) ${commit.message}`)
             .join('\n');
-        const repo = github.context.repo;
-        const pipelineUrl = `${github.context.serverUrl}/${repo}/actions/runs/${github.context.runId}`;
+        const repoInfo = github.context.repo;
+        const repoUrl = `${github.context.serverUrl}/${repoInfo.owner}/${repoInfo.repo}`;
+        const pipelineUrl = `${repoUrl}/actions/runs/${github.context.runId}`;
         core.debug(`Pipeline URL: ${pipelineUrl}`);
         const buttons = [
             {
                 text: 'View Commit',
-                url: `${repo}/commit/${revision}`
+                url: `${repoUrl}/commit/${revision}`
             },
             {
                 text: 'View Pipeline',
