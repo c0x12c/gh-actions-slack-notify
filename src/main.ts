@@ -31,7 +31,7 @@ export async function run(): Promise<void> {
       .join('\n')
 
     const repo = github.context.repo
-    const pipelineUrl =  `${github.context.serverUrl}/${repo}/actions/runs/${github.context.runId}`
+    const pipelineUrl = `${github.context.serverUrl}/${repo}/actions/runs/${github.context.runId}`
     core.debug(`Pipeline URL: ${pipelineUrl}`)
 
     const buttons = [
