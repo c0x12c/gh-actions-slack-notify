@@ -38064,12 +38064,9 @@ async function run() {
         const combinedMessages = commitMessages.all
             .map(commit => `${commit.hash.substring(0, 8)} (${commit.author_name}) ${commit.message}`)
             .join('\n');
-        const repoUrl = await simpleGit.remote(['get-url', 'origin']);
-        const repo = 'https://github.com/' +
-            (await simpleGit.remote(['get-url', 'origin']))
-                .split(/github.com[:\/]/)[1]
-                .replace('.git', '')
-                .trim();
+        const repo = github.context.repo;
+        const pipelineUrl = `${github.context.serverUrl}/${repo}/actions/runs/${github.context.runId}`;
+        core.debug(`Pipeline URL: ${pipelineUrl}`);
         const buttons = [
             {
                 text: 'View Commit',
@@ -38077,7 +38074,7 @@ async function run() {
             },
             {
                 text: 'View Pipeline',
-                url: `${github.context.serverUrl}/${github.context.repo}/actions/runs/${github.context.runId}`
+                url: pipelineUrl
             }
         ];
         if (projectUrl) {
