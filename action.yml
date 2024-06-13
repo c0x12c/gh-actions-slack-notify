@@ -1,6 +1,6 @@
-name: 'The name of your action here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'GitHub Actions Slack Notify'
+description: 'Send notifications to Slack'
+author: 'Duc Duong <duc.duong@c0x12c.com>'
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
