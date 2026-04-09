@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send Notification to Slack
-        uses: c0x12c/gh-actions-slack-notify@v0.1.2
+        uses: c0x12c/gh-actions-slack-notify@v0.1.3
         with:
           webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
           title: ':rocket: *${{ github.event.repository.name }} - Finish processing in DEV*'
