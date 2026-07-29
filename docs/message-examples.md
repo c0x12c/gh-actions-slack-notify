@@ -1,10 +1,10 @@
 # `message` examples
 
-The `message` input renders as a Block Kit `mrkdwn` section beneath the title. It is optional -
-omit it and the payload is exactly what this action posted before the input existed.
+The `message` input renders as a Block Kit `mrkdwn` section beneath the title. It is optional - omit
+it and the payload is exactly what this action posted before the input existed.
 
-Slack truncates long messages, so the body is capped at 2500 characters. Anything longer is cut
-and ` ... [truncated]` appended, with the suffix counted inside the cap.
+Slack truncates long messages, so the body is capped at 2500 characters. Anything longer is cut and
+` ... [truncated]` appended, with the suffix counted inside the cap.
 
 ## Static messages
 
@@ -35,8 +35,8 @@ and ` ... [truncated]` appended, with the suffix counted inside the cap.
 
 ## Dynamic messages from an earlier step
 
-This is the case the input was added for: a step fails, and the alert should carry the reason
-rather than only a link to the run.
+This is the case the input was added for: a step fails, and the alert should carry the reason rather
+than only a link to the run.
 
 ### The mechanics
 
@@ -63,7 +63,7 @@ content is arbitrary user input, generate a random delimiter instead.
 Capture the output while still letting the step fail. `tee` lets a later step read it, and
 `PIPESTATUS[0]` preserves terraform's own exit code rather than `tee`'s:
 
-```yaml
+````yaml
 - name: Terraform Apply
   id: tf_apply
   shell: bash
@@ -93,9 +93,11 @@ Capture the output while still letting the step fail. `tee` lets a later step re
   uses: c0x12c/gh-actions-slack-notify@v1
   with:
     webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-    title: '❌ *${{ github.event.repository.name }} - Terraform Apply FAILED in ${{ inputs.environment }}*'
+    title:
+      '❌ *${{ github.event.repository.name }} - Terraform Apply FAILED in ${{ inputs.environment
+      }}*'
     message: ${{ steps.tf_error.outputs.text }}
-```
+````
 
 Produces:
 
@@ -113,12 +115,12 @@ Produces:
 >   Who:       someone@their-machine.local
 > ```
 
-Pass `-no-color`. Terraform's ANSI codes both defeat a `^Error:` style anchor and render as
-garbage in Slack.
+Pass `-no-color`. Terraform's ANSI codes both defeat a `^Error:` style anchor and render as garbage
+in Slack.
 
 ### Test failures
 
-```yaml
+````yaml
 - name: Test
   id: test
   run: |
@@ -137,7 +139,7 @@ garbage in Slack.
       echo '```'
       echo 'GH_EOF'
     } >> "$GITHUB_OUTPUT"
-```
+````
 
 ### Deployed-image summary on success
 
@@ -176,9 +178,9 @@ instead:
 Passing `${{ steps.x.outputs.y }}` straight into the action's `message:` input is safe - it is a
 value handed to the action, not shell source.
 
-**Long bodies are cut at 2500 characters.** For anything larger, link the run and put only the
-first error in the message. The run URL is
+**Long bodies are cut at 2500 characters.** For anything larger, link the run and put only the first
+error in the message. The run URL is
 `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`.
 
-**An empty `message` adds no section**, so a conditional body is safe - when the expression
-resolves to an empty string the alert renders exactly as a title-only one.
+**An empty `message` adds no section**, so a conditional body is safe - when the expression resolves
+to an empty string the alert renders exactly as a title-only one.
