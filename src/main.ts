@@ -5,6 +5,7 @@ import { simpleGit as SimpleGit } from 'simple-git'
 
 const simpleGit = SimpleGit()
 const MAX_MESSAGE_LENGTH = 2500
+const TRUNCATION_SUFFIX = ' ... [truncated]'
 
 /**
  * The main function for the action.
@@ -58,7 +59,7 @@ export async function run(): Promise<void> {
     const trimmedMessage = message.trim()
     const truncatedMessage =
       trimmedMessage.length > MAX_MESSAGE_LENGTH
-        ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH)} ... [truncated]`
+        ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
         : trimmedMessage
 
     const messageBlocks = [

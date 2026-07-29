@@ -38044,6 +38044,7 @@ const webhook_1 = __nccwpck_require__(1095);
 const simple_git_1 = __nccwpck_require__(9103);
 const simpleGit = (0, simple_git_1.simpleGit)();
 const MAX_MESSAGE_LENGTH = 2500;
+const TRUNCATION_SUFFIX = ' ... [truncated]';
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -38088,7 +38089,7 @@ async function run() {
         }
         const trimmedMessage = message.trim();
         const truncatedMessage = trimmedMessage.length > MAX_MESSAGE_LENGTH
-            ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH)} ... [truncated]`
+            ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
             : trimmedMessage;
         const messageBlocks = [
             {
