@@ -54,6 +54,13 @@ describe('renderMessage', () => {
       expect(renderMessage('value `', 'code')).toBe(`${FENCE}value${FENCE}`)
     })
 
+    // Indentation is structure in machine output, not padding to be tidied away.
+    it('preserves leading indentation, dropping only blank leading lines', () => {
+      expect(renderMessage('\n\n    at foo()\n      at bar()\n\n', 'code')).toBe(
+        `${FENCE}    at foo()\n      at bar()${FENCE}`
+      )
+    })
+
     it('keeps the whole rendered block within the cap, fence included', () => {
       const out = renderMessage('x'.repeat(MAX + 500), 'code')
       expect(out.length).toBeLessThanOrEqual(MAX)

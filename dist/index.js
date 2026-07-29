@@ -38061,9 +38061,13 @@ function truncate(text, max) {
  * the block early and let whatever followed render as mrkdwn.
  */
 function renderMessage(raw, format) {
-    const body = raw.trim();
-    if (!body || format !== 'code')
-        return truncate(body, MAX_MESSAGE_LENGTH);
+    if (!raw.trim())
+        return '';
+    if (format !== 'code')
+        return truncate(raw.trim(), MAX_MESSAGE_LENGTH);
+    // Indentation on the first line is structure in machine output - a stack trace frame, a nested
+    // terraform attribute - so only blank leading lines go, not the leading whitespace itself.
+    const body = raw.replace(/^\n+/, '').trimEnd();
     // The fence counts against the same budget, so reserve it instead of letting the rendered block
     // run over. Truncating first and wrapping after would also risk cutting the closing fence off.
     const inner = truncate(body.replace(/```/g, "'''"), MAX_MESSAGE_LENGTH - FENCE.length * 2);
