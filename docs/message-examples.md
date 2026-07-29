@@ -6,6 +6,24 @@ it and the payload is exactly what this action posted before the input existed.
 Slack truncates long messages, so the body is capped at 2500 characters. Anything longer is cut and
 ` ... [truncated]` appended, with the suffix counted inside the cap.
 
+## `message_format`
+
+`mrkdwn` (default) renders the body as-is. `code` wraps it in a code block, which is what you want
+for command output, a stack trace, or a terraform error:
+
+    - uses: c0x12c/gh-actions-slack-notify@v0
+      with:
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        title: ':rotating_light: *Apply failed*'
+        message: ${{ steps.apply.outputs.error_detail }}
+        message_format: 'code'
+
+Use it rather than adding the fence to the value yourself. Slack closes a code block at the first
+fence terminator, so a ` ``` ` inside the text would end the block early and let everything after it
+render as mrkdwn - bold, links and all. Under `code` the action replaces those terminators with
+`'''`, drops trailing backticks that would merge with the closing fence, and counts the fence
+against the 2500-character cap so a long body cannot push it out.
+
 ## Static messages
 
 ### Title only (unchanged behaviour)
@@ -63,7 +81,7 @@ content is arbitrary user input, generate a random delimiter instead.
 Capture the output while still letting the step fail. `tee` lets a later step read it, and
 `PIPESTATUS[0]` preserves terraform's own exit code rather than `tee`'s:
 
-````yaml
+```yaml
 - name: Terraform Apply
   id: tf_apply
   shell: bash
@@ -82,9 +100,7 @@ Capture the output while still letting the step fail. `tee` lets a later step re
     [ -n "$detail" ] || detail=$(tail -c 2000 /tmp/apply.log)
     {
       echo 'text<<GH_EOF'
-      echo '```'
       echo "$detail"
-      echo '```'
       echo 'GH_EOF'
     } >> "$GITHUB_OUTPUT"
 
@@ -97,7 +113,8 @@ Capture the output while still letting the step fail. `tee` lets a later step re
       '❌ *${{ github.event.repository.name }} - Terraform Apply FAILED in ${{ inputs.environment
       }}*'
     message: ${{ steps.tf_error.outputs.text }}
-````
+    message_format: 'code'
+```
 
 Produces:
 
@@ -120,7 +137,7 @@ in Slack.
 
 ### Test failures
 
-````yaml
+```yaml
 - name: Test
   id: test
   run: |
@@ -134,12 +151,10 @@ in Slack.
   run: |
     {
       echo 'text<<GH_EOF'
-      echo '```'
       grep -E '^\s+(✕|✗|FAIL)' /tmp/test.log | head -20
-      echo '```'
       echo 'GH_EOF'
     } >> "$GITHUB_OUTPUT"
-````
+```
 
 ### Deployed-image summary on success
 
@@ -160,9 +175,10 @@ Bodies are not only for failures:
 
 ## Gotchas
 
-**Wrap machine output in a code fence.** The body is `mrkdwn`, so Slack interprets `*`, `_` and
-backticks. A stack trace containing `*` will render as bold and swallow text. A triple-backtick
-fence, as in the examples above, avoids it.
+**Set `message_format: 'code'` for machine output.** The body is `mrkdwn` by default, so Slack
+interprets `*`, `_` and backticks - a stack trace containing `*` renders as bold and swallows text.
+`code` wraps it for you and escapes fence terminators in the content, which fencing the value
+yourself does not.
 
 **Do not interpolate untrusted text into a `run:` block.** `${{ }}` is substituted into the script
 before bash sees it, so content containing backticks or `$(...)` executes. Pass it through `env:`

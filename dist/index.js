@@ -38037,6 +38037,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.renderMessage = renderMessage;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
@@ -38045,6 +38046,35 @@ const simple_git_1 = __nccwpck_require__(9103);
 const simpleGit = (0, simple_git_1.simpleGit)();
 const MAX_MESSAGE_LENGTH = 2500;
 const TRUNCATION_SUFFIX = ' ... [truncated]';
+const FENCE = '```';
+/** Cap the length, marking the cut so a truncated body does not read as a complete one. */
+function truncate(text, max) {
+    return text.length > max
+        ? `${text.slice(0, max - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
+        : text;
+}
+/**
+ * Render the message body for Slack.
+ *
+ * `code` wraps it in a fence, which is why the escaping lives here rather than in each caller:
+ * Slack closes a code block at the first fence terminator, so one occurring in the body would end
+ * the block early and let whatever followed render as mrkdwn.
+ */
+function renderMessage(raw, format) {
+    if (!raw.trim())
+        return '';
+    if (format !== 'code')
+        return truncate(raw.trim(), MAX_MESSAGE_LENGTH);
+    // Indentation on the first line is structure in machine output - a stack trace frame, a nested
+    // terraform attribute - so only blank leading lines go, not the leading whitespace itself.
+    const body = raw.replace(/^\n+/, '').trimEnd();
+    // The fence counts against the same budget, so reserve it instead of letting the rendered block
+    // run over. Truncating first and wrapping after would also risk cutting the closing fence off.
+    const inner = truncate(body.replace(/```/g, "'''"), MAX_MESSAGE_LENGTH - FENCE.length * 2);
+    // A body ending in backticks would merge with the closing fence into a longer run. Trailing
+    // whitespace goes with them so stripping one does not leave the other stranded.
+    return `${FENCE}${inner.replace(/[\s`]+$/, '')}${FENCE}`;
+}
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -38053,6 +38083,7 @@ async function run() {
     try {
         const title = core.getInput('title');
         const message = core.getInput('message');
+        const messageFormat = core.getInput('message_format') || 'mrkdwn';
         const projectUrl = core.getInput('project_url');
         const webhookUrl = core.getInput('webhook_url');
         const webhook = new webhook_1.IncomingWebhook(webhookUrl);
@@ -38087,10 +38118,10 @@ async function run() {
                 url: projectUrl
             });
         }
-        const trimmedMessage = message.trim();
-        const truncatedMessage = trimmedMessage.length > MAX_MESSAGE_LENGTH
-            ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
-            : trimmedMessage;
+        if (messageFormat !== 'mrkdwn' && messageFormat !== 'code') {
+            core.warning(`Unknown message_format '${messageFormat}'; rendering as mrkdwn.`);
+        }
+        const renderedMessage = renderMessage(message, messageFormat);
         const messageBlocks = [
             {
                 type: 'section',
@@ -38099,13 +38130,13 @@ async function run() {
                     text: title
                 }
             },
-            ...(truncatedMessage
+            ...(renderedMessage
                 ? [
                     {
                         type: 'section',
                         text: {
                             type: 'mrkdwn',
-                            text: truncatedMessage
+                            text: renderedMessage
                         }
                     }
                 ]
