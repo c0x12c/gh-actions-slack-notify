@@ -4,6 +4,7 @@ import { IncomingWebhook } from '@slack/webhook'
 import { simpleGit as SimpleGit } from 'simple-git'
 
 const simpleGit = SimpleGit()
+const MAX_MESSAGE_LENGTH = 2500
 
 /**
  * The main function for the action.
@@ -12,6 +13,7 @@ const simpleGit = SimpleGit()
 export async function run(): Promise<void> {
   try {
     const title = core.getInput('title') as string
+    const message = core.getInput('message') as string
     const projectUrl = core.getInput('project_url') as string
     const webhookUrl = core.getInput('webhook_url') as string
     const webhook = new IncomingWebhook(webhookUrl)
@@ -53,6 +55,12 @@ export async function run(): Promise<void> {
       })
     }
 
+    const trimmedMessage = message.trim()
+    const truncatedMessage =
+      trimmedMessage.length > MAX_MESSAGE_LENGTH
+        ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH)} ... [truncated]`
+        : trimmedMessage
+
     const messageBlocks = [
       {
         type: 'section',
@@ -61,6 +69,17 @@ export async function run(): Promise<void> {
           text: title
         }
       },
+      ...(truncatedMessage
+        ? [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: truncatedMessage
+              }
+            }
+          ]
+        : []),
       {
         type: 'section',
         text: {

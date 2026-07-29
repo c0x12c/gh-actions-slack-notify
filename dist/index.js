@@ -38043,6 +38043,7 @@ const github = __importStar(__nccwpck_require__(5438));
 const webhook_1 = __nccwpck_require__(1095);
 const simple_git_1 = __nccwpck_require__(9103);
 const simpleGit = (0, simple_git_1.simpleGit)();
+const MAX_MESSAGE_LENGTH = 2500;
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -38050,6 +38051,7 @@ const simpleGit = (0, simple_git_1.simpleGit)();
 async function run() {
     try {
         const title = core.getInput('title');
+        const message = core.getInput('message');
         const projectUrl = core.getInput('project_url');
         const webhookUrl = core.getInput('webhook_url');
         const webhook = new webhook_1.IncomingWebhook(webhookUrl);
@@ -38084,6 +38086,10 @@ async function run() {
                 url: projectUrl
             });
         }
+        const trimmedMessage = message.trim();
+        const truncatedMessage = trimmedMessage.length > MAX_MESSAGE_LENGTH
+            ? `${trimmedMessage.slice(0, MAX_MESSAGE_LENGTH)} ... [truncated]`
+            : trimmedMessage;
         const messageBlocks = [
             {
                 type: 'section',
@@ -38092,6 +38098,17 @@ async function run() {
                     text: title
                 }
             },
+            ...(truncatedMessage
+                ? [
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: truncatedMessage
+                        }
+                    }
+                ]
+                : []),
             {
                 type: 'section',
                 text: {

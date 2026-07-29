@@ -9,6 +9,10 @@ branding:
 
 # Define your inputs here.
 inputs:
+  message:
+    description: 'Optional body text rendered beneath the title.'
+    required: false
+    default: ''
   num-commits:
     description: 'The number of recent commis included in the message'
     required: false
