@@ -7,12 +7,57 @@ const simpleGit = SimpleGit()
 const MAX_MESSAGE_LENGTH = 2500
 const TRUNCATION_SUFFIX = ' ... [truncated]'
 const FENCE = '```'
+// Slack rejects the whole payload if a button label runs past 75 characters, or if an actions
+// block carries more than 25 elements.
+const MAX_BUTTON_TEXT_LENGTH = 75
+const MAX_BUTTONS = 25
 
 /** Cap the length, marking the cut so a truncated body does not read as a complete one. */
 function truncate(text: string, max: number): string {
   return text.length > max
     ? `${text.slice(0, max - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
     : text
+}
+
+export interface Button {
+  text: string
+  url: string
+}
+
+/**
+ * Parse the `buttons` input - a JSON array of `{ text, url }`.
+ *
+ * A malformed entry is dropped with a warning rather than thrown: a bad button should cost you
+ * the button, not the whole notification, which is usually the only signal that something failed.
+ */
+export function parseButtons(raw: string): Button[] {
+  if (!raw.trim()) return []
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    core.warning('buttons is not valid JSON; rendering none.')
+    return []
+  }
+
+  if (!Array.isArray(parsed)) {
+    core.warning('buttons is not a JSON array; rendering none.')
+    return []
+  }
+
+  return parsed
+    .map(entry => {
+      const candidate = entry as Record<string, unknown> | null
+      const text = typeof candidate?.text === 'string' ? candidate.text.trim() : ''
+      const url = typeof candidate?.url === 'string' ? candidate.url.trim() : ''
+      if (!text || !url) {
+        core.warning(`Skipping button without both text and url: ${JSON.stringify(entry)}`)
+        return null
+      }
+      return { text: text.slice(0, MAX_BUTTON_TEXT_LENGTH), url }
+    })
+    .filter((button): button is Button => button !== null)
 }
 
 /**
@@ -47,6 +92,7 @@ export async function run(): Promise<void> {
     const message = core.getInput('message') as string
     const messageFormat = (core.getInput('message_format') as string) || 'mrkdwn'
     const projectUrl = core.getInput('project_url') as string
+    const extraButtons = parseButtons(core.getInput('buttons') as string)
     const webhookUrl = core.getInput('webhook_url') as string
     const webhook = new IncomingWebhook(webhookUrl)
 
@@ -85,6 +131,13 @@ export async function run(): Promise<void> {
         text: 'View Project',
         url: projectUrl
       })
+    }
+
+    buttons.push(...extraButtons)
+
+    if (buttons.length > MAX_BUTTONS) {
+      core.warning(`Slack renders at most ${MAX_BUTTONS} buttons; dropping the rest.`)
+      buttons.length = MAX_BUTTONS
     }
 
     if (messageFormat !== 'mrkdwn' && messageFormat !== 'code') {
