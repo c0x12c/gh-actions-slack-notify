@@ -1,4 +1,4 @@
-import { renderMessage } from '../src/main'
+import { parseButtons, renderMessage } from '../src/main'
 
 const FENCE = '```'
 const MAX = 2500
@@ -72,5 +72,83 @@ describe('renderMessage', () => {
 
   it('falls back to mrkdwn for an unknown format rather than dropping the message', () => {
     expect(renderMessage(`a ${FENCE} b`, 'nonsense')).toBe(`a ${FENCE} b`)
+  })
+})
+
+describe('parseButtons', () => {
+  it('parses a list of buttons in order', () => {
+    expect(
+      parseButtons(
+        '[{"text":"View Issue","url":"https://x/1"},{"text":"Runbook","url":"https://x/2"}]'
+      )
+    ).toEqual([
+      { text: 'View Issue', url: 'https://x/1' },
+      { text: 'Runbook', url: 'https://x/2' }
+    ])
+  })
+
+  it('renders none when the input is unset, empty or an empty array', () => {
+    expect(parseButtons('')).toEqual([])
+    expect(parseButtons('   ')).toEqual([])
+    expect(parseButtons('[]')).toEqual([])
+  })
+
+  // A caller building the JSON from a step output can legitimately produce an empty url - the
+  // notification should still go out, one button lighter.
+  it('skips an entry missing text or url rather than rendering a broken button', () => {
+    expect(
+      parseButtons(
+        '[{"text":"No url","url":""},{"text":"","url":"https://x/1"},{"url":"https://x/2"}]'
+      )
+    ).toEqual([])
+  })
+
+  it('keeps the valid entries alongside a skipped one', () => {
+    expect(parseButtons('[{"text":"Ok","url":"https://x/1"},{"text":"Bad","url":""}]')).toEqual([
+      { text: 'Ok', url: 'https://x/1' }
+    ])
+  })
+
+  // Slack rejects the whole payload on a bad block, so a malformed input must not take the
+  // notification down with it.
+  it('renders none for invalid JSON or a non-array', () => {
+    expect(parseButtons('not json')).toEqual([])
+    expect(parseButtons('{"text":"x","url":"y"}')).toEqual([])
+    expect(parseButtons('"a string"')).toEqual([])
+    expect(parseButtons('[null]')).toEqual([])
+  })
+
+  it('trims, and truncates a label past the 75-character button cap', () => {
+    expect(parseButtons('[{"text":"  Spaced  ","url":"  https://x/1  "}]')).toEqual([
+      { text: 'Spaced', url: 'https://x/1' }
+    ])
+    expect(parseButtons(`[{"text":"${'x'.repeat(100)}","url":"https://x/1"}]`)).toEqual([
+      { text: 'x'.repeat(75), url: 'https://x/1' }
+    ])
+  })
+
+  // Truncating by UTF-16 code unit would cut the 38th emoji in half and leave a lone surrogate,
+  // which Slack renders as a replacement character at best.
+  it('truncates a label by code point, never mid-surrogate-pair', () => {
+    const [button] = parseButtons(`[{"text":"${'\u{1f600}'.repeat(80)}","url":"https://x/1"}]`)
+    expect(button.text).toBe('\u{1f600}'.repeat(75))
+    expect(Array.from(button.text)).toHaveLength(75)
+  })
+
+  // A step output that came back as 'none' or '#123' is non-empty but unusable; letting it
+  // through would have Slack reject the whole actions block.
+  it('skips a url that is not an absolute http(s) URL', () => {
+    expect(
+      parseButtons(
+        '[{"text":"a","url":"none"},{"text":"b","url":"#123"},{"text":"c","url":"/issues/1"},{"text":"d","url":"javascript:alert(1)"}]'
+      )
+    ).toEqual([])
+  })
+
+  it('skips a url past the 3000-character cap', () => {
+    const long = `https://x/${'a'.repeat(3000)}`
+    expect(
+      parseButtons(`[{"text":"Long","url":"${long}"},{"text":"Ok","url":"https://x/1"}]`)
+    ).toEqual([{ text: 'Ok', url: 'https://x/1' }])
   })
 })

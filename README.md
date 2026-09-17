@@ -37,3 +37,26 @@ with:
   message: ${{ steps.deploy.outputs.error }}
   message_format: 'code'
 ```
+
+Every message carries a _View Commit_ and a _View Pipeline_ button. `buttons` appends your own, as a
+JSON array of `{"text", "url"}` objects:
+
+```yaml
+with:
+  webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+  title: ':pause_button: *Apply awaiting approval*'
+  buttons: |
+    [
+      {"text": "View Issue", "url": "${{ steps.find_issue.outputs.issue_url }}"},
+      {"text": "Runbook", "url": "https://wiki.example.com/terraform-apply"}
+    ]
+```
+
+An entry is skipped with a warning if it is missing `text` or `url`, or if its `url` is not an
+absolute `http`/`https` one under 3000 characters - so a step output that came back empty, or as
+`none`, costs you that button rather than the notification. Labels are truncated at 75 characters
+and the row is capped at 25 buttons; Slack rejects the whole payload past either limit. Input that
+is not a JSON array at all drops every extra button, again with a warning.
+
+`project_url` predates this and still renders a single _View Project_ button after the built-in
+ones. `buttons` covers the same ground with a label you choose - prefer it for anything new.

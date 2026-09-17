@@ -9,6 +9,13 @@ branding:
 
 # Define your inputs here.
 inputs:
+  buttons:
+    description: >-
+      Extra buttons, as a JSON array of {"text", "url"} objects, rendered after the built-in View
+      Commit and View Pipeline ones. An entry missing either field is skipped rather than failing
+      the notification.
+    required: false
+    default: ''
   message:
     description: 'Optional body text rendered beneath the title.'
     required: false

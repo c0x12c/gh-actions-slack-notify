@@ -38037,6 +38037,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseButtons = parseButtons;
 exports.renderMessage = renderMessage;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(2186));
@@ -38047,11 +38048,82 @@ const simpleGit = (0, simple_git_1.simpleGit)();
 const MAX_MESSAGE_LENGTH = 2500;
 const TRUNCATION_SUFFIX = ' ... [truncated]';
 const FENCE = '```';
+// Slack rejects the whole payload if a button label runs past 75 characters, if its url runs past
+// 3000, or if an actions block carries more than 25 elements.
+const MAX_BUTTON_TEXT_LENGTH = 75;
+const MAX_BUTTON_URL_LENGTH = 3000;
+const MAX_BUTTONS = 25;
 /** Cap the length, marking the cut so a truncated body does not read as a complete one. */
 function truncate(text, max) {
     return text.length > max
         ? `${text.slice(0, max - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
         : text;
+}
+/** Cap a label by code point, so the cut cannot land inside a surrogate pair. */
+function truncateLabel(text) {
+    const points = Array.from(text);
+    return points.length > MAX_BUTTON_TEXT_LENGTH
+        ? points.slice(0, MAX_BUTTON_TEXT_LENGTH).join('')
+        : text;
+}
+/** Slack renders a button only for an absolute http(s) url within its length limit. */
+function urlProblem(url) {
+    if (url.length > MAX_BUTTON_URL_LENGTH) {
+        return `url is longer than ${MAX_BUTTON_URL_LENGTH} characters`;
+    }
+    let parsed;
+    try {
+        parsed = new URL(url);
+    }
+    catch {
+        return 'url is not an absolute URL';
+    }
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+        ? null
+        : `url scheme '${parsed.protocol}' is not http or https`;
+}
+/**
+ * Parse the `buttons` input - a JSON array of `{ text, url }`.
+ *
+ * A malformed entry is dropped with a warning rather than thrown: a bad button should cost you
+ * the button, not the whole notification, which is usually the only signal that something failed.
+ * That holds only if every value Slack validates is checked here, so the url is checked for shape
+ * and length too - a non-empty but unusable one would otherwise sink the whole payload.
+ */
+function parseButtons(raw) {
+    if (!raw.trim())
+        return [];
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    }
+    catch {
+        core.warning('buttons is not valid JSON; rendering none.');
+        return [];
+    }
+    if (!Array.isArray(parsed)) {
+        core.warning('buttons is not a JSON array; rendering none.');
+        return [];
+    }
+    return parsed
+        .map((entry, index) => {
+        const candidate = entry;
+        const text = typeof candidate?.text === 'string' ? candidate.text.trim() : '';
+        const url = typeof candidate?.url === 'string' ? candidate.url.trim() : '';
+        // Warnings name the position, never the entry: a rejected url is often a long signed one,
+        // and workflow logs mask only values registered as secrets.
+        if (!text || !url) {
+            core.warning(`Skipping button at index ${index}: text and url are both required.`);
+            return null;
+        }
+        const problem = urlProblem(url);
+        if (problem) {
+            core.warning(`Skipping button at index ${index}: ${problem}.`);
+            return null;
+        }
+        return { text: truncateLabel(text), url };
+    })
+        .filter((button) => button !== null);
 }
 /**
  * Render the message body for Slack.
@@ -38085,6 +38157,7 @@ async function run() {
         const message = core.getInput('message');
         const messageFormat = core.getInput('message_format') || 'mrkdwn';
         const projectUrl = core.getInput('project_url');
+        const extraButtons = parseButtons(core.getInput('buttons'));
         const webhookUrl = core.getInput('webhook_url');
         const webhook = new webhook_1.IncomingWebhook(webhookUrl);
         const revision = await simpleGit.revparse('HEAD');
@@ -38117,6 +38190,11 @@ async function run() {
                 text: 'View Project',
                 url: projectUrl
             });
+        }
+        buttons.push(...extraButtons);
+        if (buttons.length > MAX_BUTTONS) {
+            core.warning(`Slack renders at most ${MAX_BUTTONS} buttons; dropping the rest.`);
+            buttons.length = MAX_BUTTONS;
         }
         if (messageFormat !== 'mrkdwn' && messageFormat !== 'code') {
             core.warning(`Unknown message_format '${messageFormat}'; rendering as mrkdwn.`);
@@ -38168,7 +38246,7 @@ async function run() {
                 }))
             }
         ];
-        webhook.send({
+        await webhook.send({
             blocks: messageBlocks,
             username: 'GitHub Actions Bot'
         });
