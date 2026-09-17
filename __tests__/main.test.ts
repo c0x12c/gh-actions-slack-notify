@@ -126,4 +126,29 @@ describe('parseButtons', () => {
       { text: 'x'.repeat(75), url: 'https://x/1' }
     ])
   })
+
+  // Truncating by UTF-16 code unit would cut the 38th emoji in half and leave a lone surrogate,
+  // which Slack renders as a replacement character at best.
+  it('truncates a label by code point, never mid-surrogate-pair', () => {
+    const [button] = parseButtons(`[{"text":"${'\u{1f600}'.repeat(80)}","url":"https://x/1"}]`)
+    expect(button.text).toBe('\u{1f600}'.repeat(75))
+    expect(Array.from(button.text)).toHaveLength(75)
+  })
+
+  // A step output that came back as 'none' or '#123' is non-empty but unusable; letting it
+  // through would have Slack reject the whole actions block.
+  it('skips a url that is not an absolute http(s) URL', () => {
+    expect(
+      parseButtons(
+        '[{"text":"a","url":"none"},{"text":"b","url":"#123"},{"text":"c","url":"/issues/1"},{"text":"d","url":"javascript:alert(1)"}]'
+      )
+    ).toEqual([])
+  })
+
+  it('skips a url past the 3000-character cap', () => {
+    const long = `https://x/${'a'.repeat(3000)}`
+    expect(
+      parseButtons(`[{"text":"Long","url":"${long}"},{"text":"Ok","url":"https://x/1"}]`)
+    ).toEqual([{ text: 'Ok', url: 'https://x/1' }])
+  })
 })

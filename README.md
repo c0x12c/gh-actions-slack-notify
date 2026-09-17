@@ -52,9 +52,11 @@ with:
     ]
 ```
 
-An entry missing `text` or `url` is skipped with a warning, so a step output that came back empty
-costs you that button rather than the notification. Labels are truncated at 75 characters and the
-row is capped at 25 buttons; Slack rejects the whole payload past either limit.
+An entry is skipped with a warning if it is missing `text` or `url`, or if its `url` is not an
+absolute `http`/`https` one under 3000 characters - so a step output that came back empty, or as
+`none`, costs you that button rather than the notification. Labels are truncated at 75 characters
+and the row is capped at 25 buttons; Slack rejects the whole payload past either limit. Input that
+is not a JSON array at all drops every extra button, again with a warning.
 
 `project_url` predates this and still renders a single _View Project_ button after the built-in
 ones. `buttons` covers the same ground with a label you choose - prefer it for anything new.
