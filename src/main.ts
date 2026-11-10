@@ -13,6 +13,8 @@ const MAX_BUTTON_TEXT_LENGTH = 75
 const MAX_BUTTON_URL_LENGTH = 3000
 const MAX_BUTTONS = 25
 const MAX_ERROR_LENGTH = 500
+// A section's text is capped at 3000 characters, and step names are caller-defined.
+const MAX_STEPS = 5
 const EXIT_CODE_ONLY = /^Process completed with exit code \d+\.?$/
 
 const KNOWN_ERRORS = [
@@ -160,8 +162,9 @@ export async function fetchFailures(token: string): Promise<JobFailure[]> {
   const failed = jobs.filter(
     job => job.conclusion === 'failure' || job.steps?.some(step => step.conclusion === 'failure')
   )
+  // Only the first failed job is rendered, so fetching annotations for the rest is wasted calls.
   return Promise.all(
-    failed.map(async job => {
+    failed.slice(0, 1).map(async job => {
       const annotations = await octokit.paginate(octokit.rest.checks.listAnnotations, {
         owner,
         repo,
@@ -186,7 +189,11 @@ export function renderFailures(failures: JobFailure[]): string[] {
     const errors = [...new Set(detailed.length ? detailed : failure.errors)]
     const known = KNOWN_ERRORS.find(k => errors.some(e => k.pattern.test(e)))
     const first = (known && errors.find(e => known.pattern.test(e))) ?? errors[0]
-    const where = [failure.job, ...failure.steps].map(name => `\`${name}\``).join(' › ')
+    const steps = failure.steps.slice(0, MAX_STEPS)
+    const more = failure.steps.length - steps.length
+    const where =
+      [failure.job, ...steps].map(name => `\`${truncate(name, 100)}\``).join(' › ') +
+      (more > 0 ? ` (+${more} more)` : '')
     const shown = first ? [truncate(first.trim(), MAX_ERROR_LENGTH)] : []
     if (errors.length > 1) shown.push(`... and ${errors.length - 1} more`)
     return [
@@ -199,6 +206,27 @@ export function renderFailures(failures: JobFailure[]): string[] {
       .join('\n')
   })
 }
+
+/** Post via chat.postMessage, which unlike a webhook returns the `ts` a thread reply needs. */
+export async function postMessage(
+  token: string,
+  payload: Record<string, unknown>
+): Promise<string> {
+  const response = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=utf-8'
+    },
+    body: JSON.stringify(payload)
+  })
+  // Slack reports API errors as HTTP 200 with `ok: false`.
+  const result = (await response.json()) as { ok: boolean; ts?: string; error?: string }
+  if (!result.ok || !result.ts) throw new Error(`chat.postMessage failed: ${result.error}`)
+  return result.ts
+}
+
+const section = (text: string) => ({ type: 'section', text: { type: 'mrkdwn', text } }) as const
 
 /**
  * The main function for the action.
@@ -213,7 +241,22 @@ export async function run(): Promise<void> {
     const extraButtons = parseButtons(core.getInput('buttons') as string)
     const includeErrors = core.getInput('include_errors') === 'true'
     const webhookUrl = core.getInput('webhook_url') as string
-    const webhook = new IncomingWebhook(webhookUrl)
+    const botToken = core.getInput('slack_bot_token') as string
+    const channel = core.getInput('channel') as string
+    const useBot = Boolean(botToken && channel)
+    if (!useBot && (botToken || channel)) {
+      core.warning('slack_bot_token and channel are used only when both are set.')
+    }
+    if (!useBot && !webhookUrl) {
+      throw new Error('Set webhook_url, or slack_bot_token and channel.')
+    }
+    let replyAsThread = includeErrors && core.getInput('errors_reply_as_thread') === 'true'
+    if (replyAsThread && !useBot) {
+      core.warning(
+        'errors_reply_as_thread needs slack_bot_token and channel; a webhook cannot reply in a thread. Rendering errors inline.'
+      )
+      replyAsThread = false
+    }
 
     const revision = await simpleGit.revparse('HEAD')
     const author = await simpleGit.log({
@@ -277,45 +320,11 @@ export async function run(): Promise<void> {
     const renderedMessage = renderMessage(message, messageFormat)
 
     const messageBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: title
-        }
-      },
-      ...(renderedMessage
-        ? [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: renderedMessage
-              }
-            }
-          ]
-        : []),
-      ...failureSections.map(text => ({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text
-        }
-      })),
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Created by:* ${authorName}`
-        }
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `\`\`\`${combinedMessages}\`\`\``
-        }
-      },
+      section(title),
+      ...(renderedMessage ? [section(renderedMessage)] : []),
+      ...(replyAsThread ? [] : failureSections.map(section)),
+      section(`*Created by:* ${authorName}`),
+      section(`\`\`\`${combinedMessages}\`\`\``),
       {
         type: 'actions',
         elements: buttons.map(b => ({
@@ -330,10 +339,29 @@ export async function run(): Promise<void> {
       }
     ]
 
-    await webhook.send({
-      blocks: messageBlocks,
-      username: 'GitHub Actions Bot'
-    })
+    if (!useBot) {
+      await new IncomingWebhook(webhookUrl).send({
+        blocks: messageBlocks,
+        username: 'GitHub Actions Bot'
+      })
+      return
+    }
+
+    // `text` is the fallback Slack shows in notifications and screen readers.
+    const ts = await postMessage(botToken, { channel, text: title, blocks: messageBlocks })
+    if (replyAsThread && failureSections.length) {
+      try {
+        await postMessage(botToken, {
+          channel,
+          thread_ts: ts,
+          text: failureSections[0],
+          blocks: failureSections.map(section)
+        })
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        core.warning(`Could not reply with this run's errors (${reason}).`)
+      }
+    }
   } catch (error) {
     // Fail the workflow run if an error occurs
     if (error instanceof Error) core.setFailed(error.message)

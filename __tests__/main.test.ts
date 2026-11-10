@@ -1,4 +1,4 @@
-import { parseButtons, renderFailures, renderMessage } from '../src/main'
+import { parseButtons, postMessage, renderFailures, renderMessage } from '../src/main'
 
 const FENCE = '```'
 const MAX = 2500
@@ -217,5 +217,35 @@ describe('renderFailures', () => {
     const [section] = renderFailures([failure(['x'.repeat(800)])])
     expect(section).toContain('x'.repeat(484) + ' ... [truncated]')
     expect(section).not.toContain('x'.repeat(485))
+  })
+
+  // Slack rejects the whole payload when a section's text passes 3000 characters.
+  it('caps the step list so a long one cannot push the section past 3000 characters', () => {
+    const steps = Array.from({ length: 50 }, (_, i) => `step ${i} ${'x'.repeat(200)}`)
+    const [section] = renderFailures([failure(['x'.repeat(800)], steps)])
+    expect(section.length).toBeLessThan(3000)
+    expect(section).toContain('(+45 more)')
+  })
+})
+
+describe('postMessage', () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+
+  const reply = (body: unknown): void => {
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => body }) as jest.Mock
+  }
+
+  it('returns the ts a thread reply needs', async () => {
+    reply({ ok: true, ts: '1.2' })
+    await expect(postMessage('xoxb', { channel: 'C1' })).resolves.toBe('1.2')
+  })
+
+  // chat.postMessage reports errors as HTTP 200 with ok: false.
+  it('throws on ok: false rather than treating the 200 as sent', async () => {
+    reply({ ok: false, error: 'not_in_channel' })
+    await expect(postMessage('xoxb', { channel: 'C1' })).rejects.toThrow('not_in_channel')
   })
 })

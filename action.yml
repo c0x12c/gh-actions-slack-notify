@@ -16,14 +16,27 @@ inputs:
       the notification.
     required: false
     default: ''
+  channel:
+    description: >-
+      Channel ID to post to with `slack_bot_token`. Required with it, and the bot must be a member.
+    required: false
+    default: ''
+  errors_reply_as_thread:
+    description: >-
+      "true" posts the `include_errors` section as a thread reply instead of in the message. Needs
+      `slack_bot_token` and `channel`, since a webhook cannot reply in a thread; without them the
+      section stays inline.
+    required: false
+    default: 'false'
   github_token:
     description: "Token used to read the run's failed jobs and their error annotations."
     required: false
     default: ${{ github.token }}
   include_errors:
     description: >-
-      "true" adds each failed job's step and error annotations, with a hint for known errors such as
-      an AWS OIDC role the run could not assume. Needs `actions: read` and `checks: read`.
+      "true" adds the first failed job's steps and its first error annotation, with a hint for known
+      errors such as an AWS OIDC role the run could not assume. Needs `actions: read` and `checks:
+      read`.
     required: false
     default: 'false'
   message:
@@ -43,12 +56,19 @@ inputs:
   project_url:
     description: 'The project URL for preview'
     required: false
+  slack_bot_token:
+    description: >-
+      Bot token (`chat:write`) to post with chat.postMessage instead of `webhook_url`. Used when
+      both it and `channel` are set.
+    required: false
+    default: ''
   title:
     description: 'The message title'
     required: true
   webhook_url:
-    description: 'The Slack webhook URL'
-    required: true
+    description: 'The Slack webhook URL. Required unless `slack_bot_token` and `channel` are set.'
+    required: false
+    default: ''
 
 runs:
   using: node24

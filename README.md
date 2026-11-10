@@ -86,5 +86,19 @@ notify_failure:
         include_errors: 'true'
 ```
 
+To keep the channel scannable, `errors_reply_as_thread: 'true'` posts that section as a thread reply
+under the notification instead. A webhook cannot reply in a thread, so this needs a bot token with
+`chat:write` and a channel ID the bot is a member of. Without them the section stays inline.
+
+```yaml
+- uses: c0x12c/gh-actions-slack-notify@v0
+  with:
+    slack_bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+    channel: C0123456789
+    title: ':x: *my-service - Deploy failed*'
+    include_errors: 'true'
+    errors_reply_as_thread: 'true'
+```
+
 `project_url` predates this and still renders a single _View Project_ button after the built-in
 ones. `buttons` covers the same ground with a label you choose - prefer it for anything new.
