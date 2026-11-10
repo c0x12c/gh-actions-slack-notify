@@ -13,21 +13,21 @@ jest.mock('simple-git', () => ({
     })
   })
 }))
+const deployJob = {
+  id: 2,
+  name: 'deploy',
+  conclusion: 'failure',
+  html_url: 'https://github.com/o/r/actions/runs/1/job/2',
+  steps: [{ name: 'Configure AWS credentials', conclusion: 'failure' }]
+}
+let mockJobs: unknown[] = [deployJob]
 jest.mock('@actions/github', () => ({
   context: { repo: { owner: 'o', repo: 'r' }, runId: 1, serverUrl: 'https://github.com' },
   getOctokit: () => ({
     rest: { actions: { listJobsForWorkflowRun: 'jobs' }, checks: { listAnnotations: 'notes' } },
     paginate: async (endpoint: string) =>
       endpoint === 'jobs'
-        ? [
-            {
-              id: 2,
-              name: 'deploy',
-              conclusion: 'failure',
-              html_url: 'https://github.com/o/r/actions/runs/1/job/2',
-              steps: [{ name: 'Configure AWS credentials', conclusion: 'failure' }]
-            }
-          ]
+        ? mockJobs
         : [{ annotation_level: 'failure', message: 'Not authorized to AssumeRoleWithWebIdentity' }]
   })
 }))
@@ -41,11 +41,12 @@ describe('run', () => {
 
   beforeEach(() => {
     posted = []
+    mockJobs = [deployJob]
     inputs = { title: 'Deploy failed', include_errors: 'true', 'num-commits': '1' }
     jest.mocked(core.getInput).mockImplementation(name => inputs[name] ?? '')
     global.fetch = jest.fn(async (_url, init) => {
       posted.push(JSON.parse(init?.body as string))
-      return { json: async () => ({ ok: true, ts: `${posted.length}.0` }) }
+      return { ok: true, json: async () => ({ ok: true, ts: `${posted.length}.0` }) }
     }) as unknown as typeof fetch
   })
 
@@ -90,6 +91,19 @@ describe('run', () => {
     await run()
 
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('both'))
+  })
+
+  // fail-fast cancels the matrix siblings, which may be listed before the job that failed.
+  it('picks the failed job over a cancelled sibling listed before it', async () => {
+    mockJobs = [
+      { id: 3, name: 'test (b)', conclusion: 'cancelled', html_url: 'https://x/3', steps: [] },
+      deployJob
+    ]
+    Object.assign(inputs, { slack_bot_token: 'xoxb', channel: 'C1' })
+    await run()
+
+    expect(JSON.stringify(posted[0])).toContain('`deploy`')
+    expect(JSON.stringify(posted[0])).not.toContain('test (b)')
   })
 
   it('fails when there is nowhere to post', async () => {

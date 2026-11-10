@@ -38082,6 +38082,13 @@ const KNOWN_ERRORS = [
         hint: 'Check `timeout-minutes`, and whether a newer run cancelled this one.'
     }
 ];
+/**
+ * Slack reads `&`, `<` and `>` as control characters even inside code, so build output like
+ * `<<EOT` or `<!channel>` would be swallowed or turned into a ping or a link.
+ */
+function escapeMrkdwn(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 /** Cap the length, marking the cut so a truncated body does not read as a complete one. */
 function truncate(text, max) {
     return text.length > max
@@ -38185,7 +38192,11 @@ async function fetchFailures(token) {
         run_id: github.context.runId,
         per_page: 100
     });
-    const failed = jobs.filter(job => job.conclusion === 'failure' || job.steps?.some(step => step.conclusion === 'failure'));
+    // A step killed by timeout-minutes, and every job of a cancelled run, conclude as 'cancelled'.
+    const broke = (c) => c === 'failure' || c === 'cancelled';
+    const failed = jobs.filter(job => broke(job.conclusion) || job.steps?.some(s => broke(s.conclusion)));
+    // A real failure outranks the matrix siblings fail-fast cancelled because of it.
+    failed.sort((a, b) => Number(a.conclusion !== 'failure') - Number(b.conclusion !== 'failure'));
     // Only the first failed job is rendered, so fetching annotations for the rest is wasted calls.
     return Promise.all(failed.slice(0, 1).map(async (job) => {
         const annotations = await octokit.paginate(octokit.rest.checks.listAnnotations, {
@@ -38196,7 +38207,7 @@ async function fetchFailures(token) {
         });
         return {
             job: job.name,
-            steps: (job.steps ?? []).filter(step => step.conclusion === 'failure').map(s => s.name),
+            steps: (job.steps ?? []).filter(step => broke(step.conclusion)).map(s => s.name),
             url: job.html_url ?? '',
             errors: annotations
                 .filter(a => a.annotation_level === 'failure' && a.message)
@@ -38212,9 +38223,12 @@ function renderFailures(failures) {
         const first = (known && errors.find(e => known.pattern.test(e))) ?? errors[0];
         const steps = failure.steps.slice(0, MAX_STEPS);
         const more = failure.steps.length - steps.length;
-        const where = [failure.job, ...steps].map(name => `\`${truncate(name, 100)}\``).join(' › ') +
-            (more > 0 ? ` (+${more} more)` : '');
-        const shown = first ? [truncate(first.trim(), MAX_ERROR_LENGTH)] : [];
+        const where = 
+        // A backtick in a name would close its code span early.
+        [failure.job, ...steps]
+            .map(name => `\`${escapeMrkdwn(truncate(name, 100)).replace(/`/g, "'")}\``)
+            .join(' › ') + (more > 0 ? ` (+${more} more)` : '');
+        const shown = first ? [truncate(escapeMrkdwn(first.trim()), MAX_ERROR_LENGTH)] : [];
         if (errors.length > 1)
             shown.push(`... and ${errors.length - 1} more`);
         return [
@@ -38237,6 +38251,9 @@ async function postMessage(token, payload) {
         },
         body: JSON.stringify(payload)
     });
+    // A 5xx or proxy page is not JSON; name the status instead of surfacing a parse error.
+    if (!response.ok)
+        throw new Error(`chat.postMessage failed: HTTP ${response.status}`);
     // Slack reports API errors as HTTP 200 with `ok: false`.
     const result = (await response.json());
     if (!result.ok || !result.ts)

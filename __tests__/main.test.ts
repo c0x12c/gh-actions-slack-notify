@@ -219,6 +219,15 @@ describe('renderFailures', () => {
     expect(section).not.toContain('x'.repeat(485))
   })
 
+  // Build output and step names are untrusted; <!channel> must not ping, a backtick must not
+  // close the code span early.
+  it('escapes Slack control characters and backticks in errors and names', () => {
+    const [section] = renderFailures([failure(['<!channel> a && b <<EOT'], ['Run `make`'])])
+    expect(section).toContain('&lt;!channel&gt; a &amp;&amp; b &lt;&lt;EOT')
+    expect(section).toContain("`Run 'make'`")
+    expect(section).not.toContain('<!channel>')
+  })
+
   // Slack rejects the whole payload when a section's text passes 3000 characters.
   it('caps the step list so a long one cannot push the section past 3000 characters', () => {
     const steps = Array.from({ length: 50 }, (_, i) => `step ${i} ${'x'.repeat(200)}`)
@@ -235,12 +244,21 @@ describe('postMessage', () => {
   })
 
   const reply = (body: unknown): void => {
-    global.fetch = jest.fn().mockResolvedValue({ json: async () => body }) as jest.Mock
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => body }) as jest.Mock
   }
 
   it('returns the ts a thread reply needs', async () => {
     reply({ ok: true, ts: '1.2' })
     await expect(postMessage('xoxb', { channel: 'C1' })).resolves.toBe('1.2')
+  })
+
+  it('names the HTTP status when Slack answers with a non-JSON error page', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => JSON.parse('<html>')
+    }) as jest.Mock
+    await expect(postMessage('xoxb', { channel: 'C1' })).rejects.toThrow('HTTP 502')
   })
 
   // chat.postMessage reports errors as HTTP 200 with ok: false.
