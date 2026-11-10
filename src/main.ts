@@ -12,8 +12,6 @@ const FENCE = '```'
 const MAX_BUTTON_TEXT_LENGTH = 75
 const MAX_BUTTON_URL_LENGTH = 3000
 const MAX_BUTTONS = 25
-const MAX_FAILED_JOBS = 3
-const MAX_ERRORS_PER_JOB = 3
 const MAX_ERROR_LENGTH = 500
 const EXIT_CODE_ONLY = /^Process completed with exit code \d+\.?$/
 
@@ -183,13 +181,14 @@ export async function fetchFailures(token: string): Promise<JobFailure[]> {
 }
 
 export function renderFailures(failures: JobFailure[]): string[] {
-  return failures.slice(0, MAX_FAILED_JOBS).map(failure => {
+  return failures.slice(0, 1).map(failure => {
     const detailed = failure.errors.filter(e => !EXIT_CODE_ONLY.test(e.trim()))
     const errors = [...new Set(detailed.length ? detailed : failure.errors)]
     const known = KNOWN_ERRORS.find(k => errors.some(e => k.pattern.test(e)))
+    const first = (known && errors.find(e => known.pattern.test(e))) ?? errors[0]
     const where = [failure.job, ...failure.steps].map(name => `\`${name}\``).join(' › ')
-    const shown = errors.slice(0, MAX_ERRORS_PER_JOB).map(e => truncate(e.trim(), MAX_ERROR_LENGTH))
-    if (errors.length > shown.length) shown.push(`... and ${errors.length - shown.length} more`)
+    const shown = first ? [truncate(first.trim(), MAX_ERROR_LENGTH)] : []
+    if (errors.length > 1) shown.push(`... and ${errors.length - 1} more`)
     return [
       known?.label ?? ':warning: *Failed*',
       `*Job / step:* ${where}`,

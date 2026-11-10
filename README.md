@@ -58,11 +58,12 @@ absolute `http`/`https` one under 3000 characters - so a step output that came b
 and the row is capped at 25 buttons; Slack rejects the whole payload past either limit. Input that
 is not a JSON array at all drops every extra button, again with a warning.
 
-`include_errors: true` adds a section per failed job (up to 3): the job and its failed steps, its
-error annotations (up to 3, 500 characters each), and a hint when the error is a known one - an AWS
-OIDC role the run could not assume, a held Terraform state lock, ECR access denied, a timeout. A
-_View Failed Job_ button links the first one. The job needs `actions: read` and `checks: read`; if
-the lookup fails the notification still goes out, without the section.
+`include_errors: true` adds a section for the first failed job: the job and its failed steps, one
+error annotation (cut at 500 characters, with a count of the rest), and a hint when the error is a
+known one - an AWS OIDC role the run could not assume, a held Terraform state lock, ECR access
+denied, a timeout. A _View Failed Job_ button links the job for the full picture. The job needs
+`actions: read` and `checks: read`; if the lookup fails the notification still goes out, without the
+section.
 
 Annotations are uploaded only when a job ends, so send the notification from a separate job. Called
 from inside the failing job, it can name the failed step but not its error.

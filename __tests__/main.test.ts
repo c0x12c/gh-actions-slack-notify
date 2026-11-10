@@ -201,10 +201,16 @@ describe('renderFailures', () => {
     ])
   })
 
-  it('dedupes, caps the errors per job and the jobs shown', () => {
-    const [section] = renderFailures([failure(['a', 'a', 'b', 'c', 'd', 'e'])])
-    expect(section).toContain(`${FENCE}a\nb\nc\n... and 2 more${FENCE}`)
-    expect(renderFailures(Array(5).fill(failure(['x'])))).toHaveLength(3)
+  it('shows only the first error of the first failed job', () => {
+    const [section] = renderFailures([failure(['a', 'a', 'b', 'c'])])
+    expect(section).toContain(`${FENCE}a\n... and 2 more${FENCE}`)
+    expect(renderFailures([failure(['x']), failure(['y'])])).toHaveLength(1)
+  })
+
+  it('shows the error that matched a known one, so it lines up with the hint', () => {
+    const [section] = renderFailures([failure(['Error: other', 'Error acquiring the state lock'])])
+    expect(section).toContain(`${FENCE}Error acquiring the state lock\n... and 1 more${FENCE}`)
+    expect(section).toContain(':lock: *Terraform state lock held*')
   })
 
   it('truncates a long error', () => {
