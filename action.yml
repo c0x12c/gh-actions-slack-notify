@@ -16,6 +16,16 @@ inputs:
       the notification.
     required: false
     default: ''
+  github_token:
+    description: "Token used to read the run's failed jobs and their error annotations."
+    required: false
+    default: ${{ github.token }}
+  include_errors:
+    description: >-
+      "true" adds each failed job's step and error annotations, with a hint for known errors such as
+      an AWS OIDC role the run could not assume. Needs `actions: read` and `checks: read`.
+    required: false
+    default: 'false'
   message:
     description: 'Optional body text rendered beneath the title.'
     required: false

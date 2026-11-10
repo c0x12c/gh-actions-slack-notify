@@ -38039,6 +38039,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.parseButtons = parseButtons;
 exports.renderMessage = renderMessage;
+exports.fetchFailures = fetchFailures;
+exports.renderFailures = renderFailures;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(2186));
 const github = __importStar(__nccwpck_require__(5438));
@@ -38053,6 +38055,32 @@ const FENCE = '```';
 const MAX_BUTTON_TEXT_LENGTH = 75;
 const MAX_BUTTON_URL_LENGTH = 3000;
 const MAX_BUTTONS = 25;
+const MAX_FAILED_JOBS = 3;
+const MAX_ERRORS_PER_JOB = 3;
+const MAX_ERROR_LENGTH = 500;
+const EXIT_CODE_ONLY = /^Process completed with exit code \d+\.?$/;
+const KNOWN_ERRORS = [
+    {
+        pattern: /AssumeRoleWithWebIdentity|assume role with OIDC/i,
+        label: ':closed_lock_with_key: *AWS OIDC: could not assume role*',
+        hint: 'The role trust policy does not match the token. Check the repo, branch or `environment:` in its `token.actions.githubusercontent.com:sub` condition, and the role ARN.'
+    },
+    {
+        pattern: /Error acquiring the state lock/i,
+        label: ':lock: *Terraform state lock held*',
+        hint: 'Another plan or apply holds the lock. Wait for it, or force-unlock if that run died.'
+    },
+    {
+        pattern: /not authorized to perform: ecr:|no basic auth credentials/i,
+        label: ':no_entry: *ECR access denied*',
+        hint: 'Check the ECR permissions of the assumed role and that the registry login step ran.'
+    },
+    {
+        pattern: /exceeded the maximum execution time|The operation was canceled/i,
+        label: ':stopwatch: *Timed out or cancelled*',
+        hint: 'Check `timeout-minutes`, and whether a newer run cancelled this one.'
+    }
+];
 /** Cap the length, marking the cut so a truncated body does not read as a complete one. */
 function truncate(text, max) {
     return text.length > max
@@ -38147,6 +38175,52 @@ function renderMessage(raw, format) {
     // whitespace goes with them so stripping one does not leave the other stranded.
     return `${FENCE}${inner.replace(/[\s`]+$/, '')}${FENCE}`;
 }
+async function fetchFailures(token) {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
+        owner,
+        repo,
+        run_id: github.context.runId,
+        per_page: 100
+    });
+    const failed = jobs.filter(job => job.conclusion === 'failure' || job.steps?.some(step => step.conclusion === 'failure'));
+    return Promise.all(failed.map(async (job) => {
+        const annotations = await octokit.paginate(octokit.rest.checks.listAnnotations, {
+            owner,
+            repo,
+            check_run_id: job.id,
+            per_page: 100
+        });
+        return {
+            job: job.name,
+            steps: (job.steps ?? []).filter(step => step.conclusion === 'failure').map(s => s.name),
+            url: job.html_url ?? '',
+            errors: annotations
+                .filter(a => a.annotation_level === 'failure' && a.message)
+                .map(a => a.message)
+        };
+    }));
+}
+function renderFailures(failures) {
+    return failures.slice(0, MAX_FAILED_JOBS).map(failure => {
+        const detailed = failure.errors.filter(e => !EXIT_CODE_ONLY.test(e.trim()));
+        const errors = [...new Set(detailed.length ? detailed : failure.errors)];
+        const known = KNOWN_ERRORS.find(k => errors.some(e => k.pattern.test(e)));
+        const where = [failure.job, ...failure.steps].map(name => `\`${name}\``).join(' › ');
+        const shown = errors.slice(0, MAX_ERRORS_PER_JOB).map(e => truncate(e.trim(), MAX_ERROR_LENGTH));
+        if (errors.length > shown.length)
+            shown.push(`... and ${errors.length - shown.length} more`);
+        return [
+            known?.label ?? ':warning: *Failed*',
+            `*Job / step:* ${where}`,
+            renderMessage(shown.join('\n'), 'code'),
+            known ? `_Hint:_ ${known.hint}` : ''
+        ]
+            .filter(Boolean)
+            .join('\n');
+    });
+}
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -38158,6 +38232,7 @@ async function run() {
         const messageFormat = core.getInput('message_format') || 'mrkdwn';
         const projectUrl = core.getInput('project_url');
         const extraButtons = parseButtons(core.getInput('buttons'));
+        const includeErrors = core.getInput('include_errors') === 'true';
         const webhookUrl = core.getInput('webhook_url');
         const webhook = new webhook_1.IncomingWebhook(webhookUrl);
         const revision = await simpleGit.revparse('HEAD');
@@ -38191,6 +38266,19 @@ async function run() {
                 url: projectUrl
             });
         }
+        let failureSections = [];
+        if (includeErrors) {
+            try {
+                const failures = await fetchFailures(core.getInput('github_token'));
+                failureSections = renderFailures(failures);
+                if (failures[0]?.url)
+                    buttons.push({ text: 'View Failed Job', url: failures[0].url });
+            }
+            catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                core.warning(`Could not read this run's errors (${reason}); sending without them.`);
+            }
+        }
         buttons.push(...extraButtons);
         if (buttons.length > MAX_BUTTONS) {
             core.warning(`Slack renders at most ${MAX_BUTTONS} buttons; dropping the rest.`);
@@ -38219,6 +38307,13 @@ async function run() {
                     }
                 ]
                 : []),
+            ...failureSections.map(text => ({
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text
+                }
+            })),
             {
                 type: 'section',
                 text: {

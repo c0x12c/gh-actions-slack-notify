@@ -1,4 +1,4 @@
-import { parseButtons, renderMessage } from '../src/main'
+import { parseButtons, renderFailures, renderMessage } from '../src/main'
 
 const FENCE = '```'
 const MAX = 2500
@@ -150,5 +150,66 @@ describe('parseButtons', () => {
     expect(
       parseButtons(`[{"text":"Long","url":"${long}"},{"text":"Ok","url":"https://x/1"}]`)
     ).toEqual([{ text: 'Ok', url: 'https://x/1' }])
+  })
+})
+
+describe('renderFailures', () => {
+  const failure = (errors: string[], steps = ['Configure AWS credentials']) => ({
+    job: 'deploy',
+    steps,
+    url: 'https://github.com/o/r/actions/runs/1/job/2',
+    errors
+  })
+
+  it('labels an OIDC assume-role failure and adds its hint', () => {
+    const [section] = renderFailures([
+      failure([
+        'Process completed with exit code 1.',
+        'Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity'
+      ])
+    ])
+    expect(section).toBe(
+      [
+        ':closed_lock_with_key: *AWS OIDC: could not assume role*',
+        '*Job / step:* `deploy` › `Configure AWS credentials`',
+        `${FENCE}Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity${FENCE}`,
+        '_Hint:_ The role trust policy does not match the token. Check the repo, branch or `environment:` in its `token.actions.githubusercontent.com:sub` condition, and the role ARN.'
+      ].join('\n')
+    )
+  })
+
+  it('renders an unknown error verbatim without a hint', () => {
+    const [section] = renderFailures([failure(['Error: boom'], ['Build'])])
+    expect(section).toBe(
+      [
+        ':warning: *Failed*',
+        '*Job / step:* `deploy` › `Build`',
+        `${FENCE}Error: boom${FENCE}`
+      ].join('\n')
+    )
+  })
+
+  it('keeps the exit-code line when it is the only error', () => {
+    const [section] = renderFailures([failure(['Process completed with exit code 2.'])])
+    expect(section).toContain(`${FENCE}Process completed with exit code 2.${FENCE}`)
+  })
+
+  // Annotations are uploaded when a job ends, so a notify step inside the failing job sees none.
+  it('still names the failed step when there are no annotations', () => {
+    expect(renderFailures([failure([])])).toEqual([
+      ':warning: *Failed*\n*Job / step:* `deploy` › `Configure AWS credentials`'
+    ])
+  })
+
+  it('dedupes, caps the errors per job and the jobs shown', () => {
+    const [section] = renderFailures([failure(['a', 'a', 'b', 'c', 'd', 'e'])])
+    expect(section).toContain(`${FENCE}a\nb\nc\n... and 2 more${FENCE}`)
+    expect(renderFailures(Array(5).fill(failure(['x'])))).toHaveLength(3)
+  })
+
+  it('truncates a long error', () => {
+    const [section] = renderFailures([failure(['x'.repeat(800)])])
+    expect(section).toContain('x'.repeat(484) + ' ... [truncated]')
+    expect(section).not.toContain('x'.repeat(485))
   })
 })
