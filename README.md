@@ -58,5 +58,47 @@ absolute `http`/`https` one under 3000 characters - so a step output that came b
 and the row is capped at 25 buttons; Slack rejects the whole payload past either limit. Input that
 is not a JSON array at all drops every extra button, again with a warning.
 
+`include_errors: true` adds a section for the first failed job: the job and its failed steps, one
+error annotation (cut at 500 characters, with a count of the rest), and a hint when the error is a
+known one - an AWS OIDC role the run could not assume, a held Terraform state lock, ECR access
+denied, a timeout. A _View Failed Job_ button links the job for the full picture. The job needs
+`actions: read` and `checks: read`; if the lookup fails the notification still goes out, without the
+section.
+
+Annotations are uploaded only when a job ends, so send the notification from a separate job. Called
+from inside the failing job, it can name the failed step but not its error.
+
+```yaml
+notify_failure:
+  needs: [deploy]
+  if: failure()
+  runs-on: ubuntu-latest
+  permissions:
+    actions: read
+    checks: read
+    contents: read
+  steps:
+    - uses: actions/checkout@v4
+    - uses: c0x12c/gh-actions-slack-notify@v0
+      with:
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+        title: ':x: *my-service - Deploy failed*'
+        include_errors: 'true'
+```
+
+To keep the channel scannable, `errors_reply_as_thread: 'true'` posts that section as a thread reply
+under the notification instead. A webhook cannot reply in a thread, so this needs a bot token with
+`chat:write` and a channel ID the bot is a member of. Without them the section stays inline.
+
+```yaml
+- uses: c0x12c/gh-actions-slack-notify@v0
+  with:
+    slack_bot_token: ${{ secrets.SLACK_BOT_TOKEN }}
+    channel: C0123456789
+    title: ':x: *my-service - Deploy failed*'
+    include_errors: 'true'
+    errors_reply_as_thread: 'true'
+```
+
 `project_url` predates this and still renders a single _View Project_ button after the built-in
 ones. `buttons` covers the same ground with a label you choose - prefer it for anything new.

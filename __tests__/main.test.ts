@@ -1,4 +1,4 @@
-import { parseButtons, renderMessage } from '../src/main'
+import { parseButtons, postMessage, renderFailures, renderMessage } from '../src/main'
 
 const FENCE = '```'
 const MAX = 2500
@@ -150,5 +150,120 @@ describe('parseButtons', () => {
     expect(
       parseButtons(`[{"text":"Long","url":"${long}"},{"text":"Ok","url":"https://x/1"}]`)
     ).toEqual([{ text: 'Ok', url: 'https://x/1' }])
+  })
+})
+
+describe('renderFailures', () => {
+  const failure = (errors: string[], steps = ['Configure AWS credentials']) => ({
+    job: 'deploy',
+    steps,
+    url: 'https://github.com/o/r/actions/runs/1/job/2',
+    errors
+  })
+
+  it('labels an OIDC assume-role failure and adds its hint', () => {
+    const [section] = renderFailures([
+      failure([
+        'Process completed with exit code 1.',
+        'Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity'
+      ])
+    ])
+    expect(section).toBe(
+      [
+        ':closed_lock_with_key: *AWS OIDC: could not assume role*',
+        '*Job / step:* `deploy` › `Configure AWS credentials`',
+        `${FENCE}Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity${FENCE}`,
+        '_Hint:_ The role trust policy does not match the token. Check the repo, branch or `environment:` in its `token.actions.githubusercontent.com:sub` condition, and the role ARN.'
+      ].join('\n')
+    )
+  })
+
+  it('renders an unknown error verbatim without a hint', () => {
+    const [section] = renderFailures([failure(['Error: boom'], ['Build'])])
+    expect(section).toBe(
+      [
+        ':warning: *Failed*',
+        '*Job / step:* `deploy` › `Build`',
+        `${FENCE}Error: boom${FENCE}`
+      ].join('\n')
+    )
+  })
+
+  it('keeps the exit-code line when it is the only error', () => {
+    const [section] = renderFailures([failure(['Process completed with exit code 2.'])])
+    expect(section).toContain(`${FENCE}Process completed with exit code 2.${FENCE}`)
+  })
+
+  // Annotations are uploaded when a job ends, so a notify step inside the failing job sees none.
+  it('still names the failed step when there are no annotations', () => {
+    expect(renderFailures([failure([])])).toEqual([
+      ':warning: *Failed*\n*Job / step:* `deploy` › `Configure AWS credentials`'
+    ])
+  })
+
+  it('shows only the first error of the first failed job', () => {
+    const [section] = renderFailures([failure(['a', 'a', 'b', 'c'])])
+    expect(section).toContain(`${FENCE}a\n... and 2 more${FENCE}`)
+    expect(renderFailures([failure(['x']), failure(['y'])])).toHaveLength(1)
+  })
+
+  it('shows the error that matched a known one, so it lines up with the hint', () => {
+    const [section] = renderFailures([failure(['Error: other', 'Error acquiring the state lock'])])
+    expect(section).toContain(`${FENCE}Error acquiring the state lock\n... and 1 more${FENCE}`)
+    expect(section).toContain(':lock: *Terraform state lock held*')
+  })
+
+  it('truncates a long error', () => {
+    const [section] = renderFailures([failure(['x'.repeat(800)])])
+    expect(section).toContain('x'.repeat(484) + ' ... [truncated]')
+    expect(section).not.toContain('x'.repeat(485))
+  })
+
+  // Build output and step names are untrusted; <!channel> must not ping, a backtick must not
+  // close the code span early.
+  it('escapes Slack control characters and backticks in errors and names', () => {
+    const [section] = renderFailures([failure(['<!channel> a && b <<EOT'], ['Run `make`'])])
+    expect(section).toContain('&lt;!channel&gt; a &amp;&amp; b &lt;&lt;EOT')
+    expect(section).toContain("`Run 'make'`")
+    expect(section).not.toContain('<!channel>')
+  })
+
+  // Slack rejects the whole payload when a section's text passes 3000 characters.
+  it('caps the step list so a long one cannot push the section past 3000 characters', () => {
+    const steps = Array.from({ length: 50 }, (_, i) => `step ${i} ${'x'.repeat(200)}`)
+    const [section] = renderFailures([failure(['x'.repeat(800)], steps)])
+    expect(section.length).toBeLessThan(3000)
+    expect(section).toContain('(+45 more)')
+  })
+})
+
+describe('postMessage', () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+
+  const reply = (body: unknown): void => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => body }) as jest.Mock
+  }
+
+  it('returns the ts a thread reply needs', async () => {
+    reply({ ok: true, ts: '1.2' })
+    await expect(postMessage('xoxb', { channel: 'C1' })).resolves.toBe('1.2')
+  })
+
+  it('names the HTTP status when Slack answers with a non-JSON error page', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => JSON.parse('<html>')
+    }) as jest.Mock
+    await expect(postMessage('xoxb', { channel: 'C1' })).rejects.toThrow('HTTP 502')
+  })
+
+  // chat.postMessage reports errors as HTTP 200 with ok: false.
+  it('throws on ok: false rather than treating the 200 as sent', async () => {
+    reply({ ok: false, error: 'not_in_channel' })
+    await expect(postMessage('xoxb', { channel: 'C1' })).rejects.toThrow('not_in_channel')
   })
 })
